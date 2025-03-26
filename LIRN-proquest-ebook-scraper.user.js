@@ -3,7 +3,7 @@
 // @namespace    https://github.com/gekkedev/LIRN-proquest-ebook-scraper
 // @updateURL    https://raw.githubusercontent.com/gekkedev/LIRN-proquest-ebook-scraper/main/LIRN-proquest-ebook-scraper.user.js
 // @downloadURL  https://raw.githubusercontent.com/gekkedev/LIRN-proquest-ebook-scraper/main/LIRN-proquest-ebook-scraper.user.js
-// @version      1.0
+// @version      1.1
 // @description  Automatically downloads entire ebooks from LIRN ProQuest Ebook Central as a PDF, triggered by user action.
 // @match        https://*ebookcentral-proquest-com.proxy.lirn.net/lib/*/reader.action?docID=*
 // @grant        GM_registerMenuCommand
@@ -32,8 +32,13 @@
     while (true) {
       const currentPage = getCurrentPageNumber();
       if (currentPage == lastPageNumber) {
-        if (confirm("Is " + currentPage + " the first page's number?")) break;
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Let's give it a second
+        // a woraround to address a weird issue where you scroll beyond the first page but the button to go back stays disabled
+        goForward(); goBackward();
+        // apart from the workaround: Let's give it a second
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (getCurrentPageNumber() == lastPageNumber) { // still unchanged?
+          if (confirm("Is " + currentPage + " the first page's number?")) break;
+        }
       }
       lastPageNumber = currentPage;
       goBackward();
@@ -44,8 +49,10 @@
     while (true) {
       const currentPage = getCurrentPageNumber();
       if (currentPage == lastPageNumber) {
-        //wait, because there could be a hiccup
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Let's give it a second
+        //try going forward once more and wait, because there could be a hiccup
+        goForward();
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
         if (getCurrentPageNumber() == lastPageNumber) break; //still unchanged?
       }
       lastPageNumber = currentPage;
