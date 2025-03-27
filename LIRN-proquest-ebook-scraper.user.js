@@ -3,7 +3,7 @@
 // @namespace    https://github.com/gekkedev/LIRN-proquest-ebook-scraper
 // @updateURL    https://raw.githubusercontent.com/gekkedev/LIRN-proquest-ebook-scraper/main/LIRN-proquest-ebook-scraper.user.js
 // @downloadURL  https://raw.githubusercontent.com/gekkedev/LIRN-proquest-ebook-scraper/main/LIRN-proquest-ebook-scraper.user.js
-// @version      1.1
+// @version      1.2
 // @description  Automatically downloads entire ebooks from LIRN ProQuest Ebook Central as a PDF, triggered by user action.
 // @match        https://*ebookcentral-proquest-com.proxy.lirn.net/lib/*/reader.action?docID=*
 // @grant        GM_registerMenuCommand
@@ -61,29 +61,71 @@
     }
   }
 
+  function getImageTags() {
+    return document.querySelectorAll("div > img[src*='docImage.action']")
+  }
+
+  async function waitForImagesToLoad(timeout = 30000) {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+      const images = getImageTags();
+      let allLoaded = true;
+      for (const img of images) {
+        if (!img.complete || img.naturalWidth === 0) {
+          allLoaded = false;
+          break;
+        }
+      }
+      if (allLoaded) return images; // Return images if all are loaded
+      await new Promise(resolve => setTimeout(resolve, 500)); // Check every 500ms
+    }
+    return getImageTags(); // Return whatever is available
+  }
+
   async function convertImagesToPDF(imageTags) {
-    const pdf = new jspdf.jsPDF();
+    const pdf = new jspdf.jsPDF(); // Default A4 page size (210x297mm)
 
     for (let i = 0; i < imageTags.length; i++) {
       const img = imageTags[i];
+
       await new Promise((resolve) => {
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
 
+        // Set canvas size to the image's original size
         canvas.width = img.naturalWidth;
         canvas.height = img.naturalHeight;
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
+        // Convert to image data
         const imgData = canvas.toDataURL("image/jpeg");
-        const imgWidth = 210;
-        const imgHeight = (canvas.height / canvas.width) * imgWidth;
 
+        // Get PDF page dimensions
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+
+        // Calculate image dimensions while preserving aspect ratio
+        let imgWidth = pdfWidth;
+        let imgHeight = (canvas.height / canvas.width) * pdfWidth;
+
+        // Ensure it fits within page height
+        if (imgHeight > pdfHeight) {
+          imgHeight = pdfHeight;
+          imgWidth = (canvas.width / canvas.height) * pdfHeight;
+        }
+
+        // Add image to PDF, centering it properly
         if (i > 0) pdf.addPage();
-        pdf.addImage(imgData, "JPEG", 0, 0, imgWidth, imgHeight);
+        const xOffset = (pdfWidth - imgWidth) / 2; // Center horizontally
+        const yOffset = (pdfHeight - imgHeight) / 2; // Center vertically
+
+        pdf.addImage(imgData, "JPEG", xOffset, yOffset, imgWidth, imgHeight);
         resolve();
       });
     }
-    const title = document.getElementsByClassName("book-title")[0]?.innerText || "downloaded_book";
+
+    // Save the PDF with the book title
+    const title = document.querySelector(".book-title")?.innerText || "downloaded_book";
     pdf.save(`${title}.pdf`);
   }
 
@@ -93,9 +135,8 @@
     await scrollThroughPages();
 
     //wait for the browser to cache enough iamges to begin
-    GM_notification("Waiting for images to load (15 seconds)...", softwareTitle);
-    await new Promise(resolve => setTimeout(resolve, 15000));
-    const imageTags = document.querySelectorAll("div > img[src*='docImage.action']");
+    GM_notification("Waiting for images to load (timeout: 30 seconds)...", softwareTitle);
+    const imageTags = await waitForImagesToLoad();
     GM_notification(`Found ${imageTags.length} images to save.`, softwareTitle);
     await convertImagesToPDF(imageTags);
     GM_notification("Download complete!", softwareTitle);
